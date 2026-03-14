@@ -1,10 +1,12 @@
-from flask import Flask, send_file, jsonify
+from flask import Flask, request, jsonify, send_file, render_template
+from flask_cors import CORS
 from playwright.sync_api import sync_playwright
 import pandas as pd
-import time, os, re
+import time, os, re, io
 from datetime import datetime
 
 app = Flask(__name__)
+CORS(app)
 
 
 def clean(text):
@@ -53,7 +55,6 @@ def get_book_details(page, url):
         )
         for li in bullet_lis:
             raw = clean(li.inner_text())
-
             if not data["Publisher"] and re.search(r'\bPublisher\b', raw, re.IGNORECASE):
                 if ":" in raw:
                     value = clean(raw.split(":", 1)[1])
@@ -63,12 +64,10 @@ def get_book_details(page, url):
                         data["Publication Date"] = to_ddmmyyyy(m.group(2))
                     else:
                         data["Publisher"] = value
-
             if not data["Publication Date"] and re.search(r'Publication date', raw, re.IGNORECASE):
                 if ":" in raw:
                     value = clean(raw.split(":", 1)[1])
                     data["Publication Date"] = to_ddmmyyyy(value)
-
             if data["Publisher"] and data["Publication Date"]:
                 break
 
@@ -94,19 +93,13 @@ def get_book_details(page, url):
     return data
 
 
-LISTING_PAGES = [
-    "https://www.amazon.com/Best-Sellers-Kindle-Store-Paranormal-Romance/zgbs/digital-text/6190484011/ref=zg_bs_pg_1?_encoding=UTF8&pg=1",
-    "https://www.amazon.com/Best-Sellers-Kindle-Store-Paranormal-Romance/zgbs/digital-text/6190484011/ref=zg_bs_pg_2?_encoding=UTF8&pg=2",
-]
+def run_scraper(base_url):
+    base = base_url.split("?")[0].rstrip("/")
+    listing_pages = [
+        base + "/ref=zg_bs_pg_1?_encoding=UTF8&pg=1",
+        base + "/ref=zg_bs_pg_2?_encoding=UTF8&pg=2",
+    ]
 
-
-@app.route("/")
-def home():
-    return jsonify({"status": "ok", "message": "Scraper is live. Visit /scrape to run it."})
-
-
-@app.route("/scrape")
-def scrape():
     books = []
 
     with sync_playwright() as p:
@@ -119,7 +112,7 @@ def scrape():
         page = context.new_page()
         counter = 1
 
-        for page_num, pg_url in enumerate(LISTING_PAGES, 1):
+        for page_num, pg_url in enumerate(listing_pages, 1):
             print("Listing page " + str(page_num) + "/2 ...")
             page.goto(pg_url, wait_until="domcontentloaded")
             page.wait_for_timeout(6000)
@@ -194,25 +187,16 @@ def scrape():
                             break
 
                 books.append({
-                    "Rank": rank,
-                    "Title": title,
-                    "Author": author,
-                    "Rating": rating,
-                    "Reviews": reviews,
-                    "Price": price,
-                    "URL": book_url,
-                    "Description": "",
-                    "Publisher": "",
-                    "Publication Date": "",
+                    "Rank": rank, "Title": title, "Author": author,
+                    "Rating": rating, "Reviews": reviews, "Price": price,
+                    "URL": book_url, "Description": "", "Publisher": "", "Publication Date": "",
                 })
 
-        print("Total books collected: " + str(len(books)))
-        print("Now scraping individual book pages ...")
-
+        print("Total books: " + str(len(books)))
         for i, book in enumerate(books):
             if not book["URL"]:
                 continue
-            print("[" + str(i + 1) + "/" + str(len(books)) + "] " + book["Title"][:70])
+            print("[" + str(i+1) + "/" + str(len(books)) + "] " + book["Title"][:70])
             details = get_book_details(page, book["URL"])
             book["Description"] = details["Description"]
             book["Publisher"] = details["Publisher"]
@@ -221,10 +205,38 @@ def scrape():
 
         browser.close()
 
-    df = pd.DataFrame(books, columns=["Rank", "Title", "Author", "Rating", "Reviews", "Price", "URL", "Description", "Publisher", "Publication Date"])
-    path = "/tmp/amazon_books_dataset_100.csv"
-    df.to_csv(path, index=False, encoding="utf-8-sig")
-    return send_file(path, as_attachment=True, download_name="amazon_books_dataset_100.csv")
+    return books
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/scrape", methods=["POST"])
+def scrape():
+    data = request.get_json()
+    url = data.get("url", "").strip()
+
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+    if "amazon.com" not in url:
+        return jsonify({"error": "Please enter a valid Amazon URL"}), 400
+
+    try:
+        books = run_scraper(url)
+        df = pd.DataFrame(books, columns=["Rank", "Title", "Author", "Rating", "Reviews", "Price", "URL", "Description", "Publisher", "Publication Date"])
+        output = io.StringIO()
+        df.to_csv(output, index=False)
+        output.seek(0)
+        return send_file(
+            io.BytesIO(output.getvalue().encode("utf-8-sig")),
+            mimetype="text/csv",
+            as_attachment=True,
+            download_name="amazon_books.csv"
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
