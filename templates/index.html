@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Amazon Book Scraper</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f0f0f;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      padding: 48px 40px;
+      width: 100%;
+      max-width: 600px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .logo { font-size: 32px; margin-bottom: 8px; }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; color: #ffffff; }
+    .subtitle { font-size: 14px; color: #888; margin-bottom: 36px; }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #aaa;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid #333;
+      background: #111;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+      transition: border 0.2s;
+      margin-bottom: 20px;
+    }
+    input[type="text"]:focus { border-color: #ff9900; }
+    input[type="text"]::placeholder { color: #555; }
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #ff9900;
+      color: #000;
+      font-size: 15px;
+      font-weight: 700;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    button:hover { background: #e68a00; }
+    button:active { transform: scale(0.98); }
+    button:disabled { background: #555; color: #999; cursor: not-allowed; }
+    .status {
+      margin-top: 24px;
+      padding: 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      display: none;
+    }
+    .status.loading {
+      background: #1e2a1e;
+      border: 1px solid #2d4a2d;
+      color: #7dbb7d;
+      display: block;
+    }
+    .status.error {
+      background: #2a1a1a;
+      border: 1px solid #4a2d2d;
+      color: #e07070;
+      display: block;
+    }
+    .status.success {
+      background: #1a2a1a;
+      border: 1px solid #2d4a2d;
+      color: #7dbb7d;
+      display: block;
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #7dbb7d;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .steps {
+      margin-top: 36px;
+      padding-top: 28px;
+      border-top: 1px solid #2a2a2a;
+    }
+    .steps h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+    .step { display: flex; gap: 12px; margin-bottom: 12px; align-items: flex-start; }
+    .step-num {
+      background: #ff9900;
+      color: #000;
+      font-size: 11px;
+      font-weight: 800;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .step-text { font-size: 13px; color: #888; line-height: 1.5; }
+    .step-text a { color: #ff9900; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">📚</div>
+    <h1>Amazon Book Scraper</h1>
+    <p class="subtitle">Paste an Amazon Best Sellers URL to download a full CSV of book data.</p>
+
+    <label for="urlInput">Amazon Best Sellers URL</label>
+    <input type="text" id="urlInput" placeholder="https://www.amazon.com/Best-Sellers-Kindle-Store-.../zgbs/..."/>
+
+    <button id="scrapeBtn" onclick="startScrape()">Scrape and Download CSV</button>
+
+    <div class="status" id="status"></div>
+
+    <div class="steps">
+      <h3>How to get the URL</h3>
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-text">Go to <a href="https://www.amazon.com/best-sellers-books-Amazon/zgbs/books/" target="_blank">Amazon Best Sellers</a></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-text">Browse to any category you want (e.g. Paranormal Romance, Fantasy, etc.)</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-text">Copy the URL from your browser and paste it above</div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-text">Click the button — your CSV will download automatically when done (takes around 5 mins for 100 books)</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function startScrape() {
+      const url = document.getElementById("urlInput").value.trim();
+      const btn = document.getElementById("scrapeBtn");
+      const status = document.getElementById("status");
+
+      if (!url) {
+        status.className = "status error";
+        status.innerHTML = "Please enter an Amazon URL first.";
+        return;
+      }
+      if (!url.includes("amazon.com")) {
+        status.className = "status error";
+        status.innerHTML = "Please enter a valid Amazon.com URL.";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Scraping...";
+      status.className = "status loading";
+      status.innerHTML = '<span class="spinner"></span> Scraping in progress... This takes around 5 minutes for 100 books. Do not close this tab.';
+
+      try {
+        const response = await fetch("/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || "Something went wrong.");
+        }
+
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+        a.download = "amazon_books.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        status.className = "status success";
+        status.innerHTML = "Done! Your CSV has been downloaded.";
+
+      } catch (err) {
+        status.className = "status error";
+        status.innerHTML = "Error: " + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Scrape and Download CSV";
+      }
+    }
+  </script>
+</body>
+</html>
+```
+
+---
+
+Once all saved, your folder should look like this:
+```
+scraper_web\
+    server.py
+    requirements.txt
+    build.sh
+    templates\
+        index.html
